@@ -419,6 +419,15 @@ io.on("connection", (socket) => {
     broadcastRoom(normalizedId);
   });
 
+  socket.on("game:cancel", () => {
+    const roomId = socket.roomId;
+    const room = getRoom(roomId);
+    if (!room || room.host !== socket.id || room.state !== "waiting") return;
+    upsertSession(roomId, { status: "abandoned", abandonedAt: new Date().toISOString() });
+    io.to(roomId).emit("game:cancelled");
+    rooms.delete(roomId);
+  });
+
   socket.on("game:start", () => {
     const roomId = socket.roomId;
     const room = getRoom(roomId);

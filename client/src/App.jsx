@@ -166,6 +166,16 @@ export default function App() {
       setChatMessages(prev => [...prev.slice(-99), msg]);
     };
 
+    const onCancelled = () => {
+      localStorage.removeItem(STORAGE_KEY);
+      setScreen("lobby");
+      setPlayerId(null);
+      setRoom(null);
+      setChatMessages([]);
+      socket.disconnect();
+      socket.connect();
+    };
+
     const onError = ({ message }) => {
       if (isRejoinAttempt.current) {
         isRejoinAttempt.current = false;
@@ -187,6 +197,7 @@ export default function App() {
     socket.on("round:reveal", onReveal);
     socket.on("game:over", onGameOver);
     socket.on("chat:message", onChatMessage);
+    socket.on("game:cancelled", onCancelled);
     socket.on("error", onError);
 
     return () => {
@@ -201,6 +212,7 @@ export default function App() {
       socket.off("round:reveal", onReveal);
       socket.off("game:over", onGameOver);
       socket.off("chat:message", onChatMessage);
+      socket.off("game:cancelled", onCancelled);
       socket.off("error", onError);
     };
   }, [authToken]);
@@ -227,6 +239,10 @@ export default function App() {
 
   const handleRestart = () => {
     socket.emit("game:restart");
+  };
+
+  const handleCancelGame = () => {
+    socket.emit("game:cancel");
   };
 
   const handleSendChat = (message) => {
@@ -280,6 +296,7 @@ export default function App() {
           room={room}
           playerId={playerId}
           onStart={handleStart}
+          onCancel={handleCancelGame}
           error={error}
           chatMessages={chatMessages}
           onSendChat={handleSendChat}

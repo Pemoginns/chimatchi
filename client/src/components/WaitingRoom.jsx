@@ -8,7 +8,7 @@ const LANG_META = {
 
 const QUICK_EMOTES = ["👋", "🔥", "😄", "💪", "😂", "🤔"];
 
-export default function WaitingRoom({ room, playerId, onStart, error, chatMessages, onSendChat }) {
+export default function WaitingRoom({ room, playerId, onStart, onCancel, error, chatMessages, onSendChat }) {
   const [copied, setCopied] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const chatEndRef = useRef(null);
@@ -114,16 +114,21 @@ export default function WaitingRoom({ room, playerId, onStart, error, chatMessag
       {error && <p style={styles.error}>{error}</p>}
 
       {isHost && (
-        <button
-          style={{
-            ...styles.startBtn,
-            ...(room.players.length < 2 ? styles.startBtnDisabled : {}),
-          }}
-          onClick={onStart}
-          disabled={room.players.length < 2}
-        >
-          {room.players.length < 2 ? "Waiting for players..." : "Start Game"}
-        </button>
+        <div style={styles.hostButtons}>
+          <button
+            style={{
+              ...styles.startBtn,
+              ...(room.players.length < 2 ? styles.startBtnDisabled : {}),
+            }}
+            onClick={onStart}
+            disabled={room.players.length < 2}
+          >
+            {room.players.length < 2 ? "Waiting for players..." : "Start Game"}
+          </button>
+          <button style={styles.cancelBtn} onClick={onCancel}>
+            Cancel Game
+          </button>
+        </div>
       )}
 
       <div style={styles.rules}>
@@ -289,6 +294,25 @@ const styles = {
   },
   startBtnDisabled: {
     background: "#231645", color: "#A78BFA", boxShadow: "none", cursor: "not-allowed",
+  },
+  hostButtons: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    width: "100%",
+    maxWidth: "360px",
+  },
+  cancelBtn: {
+    width: "100%",
+    padding: "13px",
+    borderRadius: "14px",
+    background: "transparent",
+    color: "#EF4444",
+    fontWeight: 700,
+    fontSize: "0.95rem",
+    border: "1.5px solid rgba(239,68,68,0.35)",
+    cursor: "pointer",
+    transition: "all 0.15s",
   },
   rules: {
     display: "flex", flexDirection: "column", gap: "6px",
