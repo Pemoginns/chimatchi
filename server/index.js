@@ -13,6 +13,7 @@ app.use(express.static(path.join(__dirname, "../client/dist")));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
+  transports: ["websocket"],
 });
 
 const PORT = process.env.PORT || 3001;
