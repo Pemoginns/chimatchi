@@ -99,13 +99,23 @@ export default function Lobby({ onCreate, onJoin, error, loading, onAdminAccess 
           {error && <p style={styles.error}>{error}</p>}
 
           {tab === "create" ? (
-            <button
-              style={{ ...styles.btn, ...styles.btnPrimary, ...(loading ? styles.btnLoading : {}) }}
-              onClick={handleCreate}
-              disabled={!playerName.trim() || loading}
-            >
-              {loading ? "Creating…" : "Create Game"}
-            </button>
+            <>
+              <button
+                style={{ ...styles.btn, ...styles.btnPrimary, ...(loading ? styles.btnLoading : {}) }}
+                onClick={handleCreate}
+                disabled={!playerName.trim() || loading}
+              >
+                {loading ? "Creating…" : "Create Game"}
+              </button>
+              <a
+                href="https://buymeacoffee.com/pemoginns"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={styles.coffeeLink}
+              >
+                coffee?
+              </a>
+            </>
           ) : (
             <button
               style={{ ...styles.btn, ...styles.btnOrange, ...(loading ? styles.btnLoading : {}) }}
@@ -285,6 +295,15 @@ const styles = {
     color: "#A78BFA",
     fontSize: "0.65rem",
     fontWeight: 600,
+  },
+  coffeeLink: {
+    textAlign: "center",
+    color: "#A78BFA",
+    fontSize: "0.8rem",
+    fontWeight: 600,
+    textDecoration: "none",
+    opacity: 0.6,
+    letterSpacing: "0.02em",
   },
   langBadge: {
     display: "flex",

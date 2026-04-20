@@ -5,7 +5,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { generateRounds } = require("./vocabulary");
-const { logGame, readLog } = require("./gameLog");
+const { logGame, readLog, upsertSession, readSessions } = require("./gameLog");
 
 const app = express();
 app.use(cors());
@@ -48,6 +48,7 @@ function broadcastRoom(roomId) {
 function startCountdown(roomId) {
   const room = getRoom(roomId);
   if (!room) return;
+  upsertSession(roomId, { status: "started", startedAt: new Date().toISOString() });
   room.state = "countdown";
   broadcastRoom(roomId);
 
@@ -155,6 +156,12 @@ function endGame(roomId, winnerId) {
     winner: winnerPlayer ? winnerPlayer.name : "No one",
     roundsPlayed: room.roundIndex,
   });
+  upsertSession(roomId, {
+    status: "completed",
+    completedAt: new Date().toISOString(),
+    winner: winnerPlayer ? winnerPlayer.name : "No one",
+    roundsPlayed: room.roundIndex,
+  });
   io.to(roomId).emit("game:over", {
     winnerId,
     winnerName: winnerPlayer ? winnerPlayer.name : "No one",
@@ -187,6 +194,13 @@ io.on("connection", (socket) => {
     socket.roomId = roomId;
     socket.emit("game:created", { roomId, playerId: socket.id });
     broadcastRoom(roomId);
+    upsertSession(roomId, {
+      createdAt: new Date().toISOString(),
+      host: player.name,
+      difficulty: diff,
+      players: [player.name],
+      status: "waiting",
+    });
   });
 
   socket.on("game:join", ({ roomId, playerName }) => {
@@ -206,6 +220,7 @@ io.on("connection", (socket) => {
     socket.roomId = roomId;
     socket.emit("game:joined", { roomId, playerId: socket.id });
     broadcastRoom(roomId);
+    upsertSession(roomId, { players: room.players.map(p => p.name) });
   });
 
   socket.on("game:start", () => {
@@ -263,6 +278,9 @@ io.on("connection", (socket) => {
     if (room.players.length === 0) {
       clearTimeout(room.wordTimer);
       clearTimeout(room.answerTimer);
+      if (room.state !== "game_over") {
+        upsertSession(roomId, { status: "abandoned", abandonedAt: new Date().toISOString() });
+      }
       rooms.delete(roomId);
       return;
     }
@@ -277,6 +295,10 @@ io.on("connection", (socket) => {
 
 app.get("/api/games", (_req, res) => {
   res.json(readLog());
+});
+
+app.get("/api/sessions", (_req, res) => {
+  res.json(readSessions());
 });
 
 app.get("*", (_req, res) => {
