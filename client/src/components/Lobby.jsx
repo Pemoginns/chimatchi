@@ -1,10 +1,12 @@
 import React, { useState } from "react";
+import PasswordModal from "./PasswordModal";
 
-export default function Lobby({ onCreate, onJoin, error, loading }) {
+export default function Lobby({ onCreate, onJoin, error, loading, onAdminAccess }) {
   const [playerName, setPlayerName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [tab, setTab] = useState("create");
   const [difficulty, setDifficulty] = useState(1);
+  const [showModal, setShowModal] = useState(false);
 
   const handleCreate = () => {
     if (!playerName.trim()) return;
@@ -18,6 +20,13 @@ export default function Lobby({ onCreate, onJoin, error, loading }) {
 
   return (
     <div style={styles.container}>
+      <button style={styles.lockBtn} onClick={() => setShowModal(true)} title="Admin">🔒</button>
+      {showModal && (
+        <PasswordModal
+          onSuccess={() => { setShowModal(false); onAdminAccess(); }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
       <div style={styles.hero}>
         <div style={styles.logo}>🧠</div>
         <h1 style={styles.title}>Pondre</h1>
@@ -119,6 +128,7 @@ export default function Lobby({ onCreate, onJoin, error, loading }) {
 
 const styles = {
   container: {
+    position: "relative",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -127,6 +137,18 @@ const styles = {
     padding: "24px 16px",
     gap: "24px",
     background: "linear-gradient(160deg, #0F0A1E 0%, #1A0A3A 100%)",
+  },
+  lockBtn: {
+    position: "absolute",
+    top: "16px",
+    right: "16px",
+    background: "transparent",
+    border: "none",
+    fontSize: "1.3rem",
+    cursor: "pointer",
+    opacity: 0.35,
+    padding: "4px",
+    lineHeight: 1,
   },
   hero: {
     textAlign: "center",

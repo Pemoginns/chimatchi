@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { generateRounds } = require("./vocabulary");
+const { logGame, readLog } = require("./gameLog");
 
 const app = express();
 app.use(cors());
@@ -146,6 +147,14 @@ function endGame(roomId, winnerId) {
   if (!room) return;
   room.state = "game_over";
   const winnerPlayer = room.players.find(p => p.id === winnerId);
+  logGame({
+    gameId: roomId,
+    timestamp: new Date().toISOString(),
+    difficulty: room.difficulty || 1,
+    players: room.players.map(p => ({ name: p.name, score: room.scores[p.id] || 0 })),
+    winner: winnerPlayer ? winnerPlayer.name : "No one",
+    roundsPlayed: room.roundIndex,
+  });
   io.to(roomId).emit("game:over", {
     winnerId,
     winnerName: winnerPlayer ? winnerPlayer.name : "No one",
@@ -264,6 +273,10 @@ io.on("connection", (socket) => {
 
     broadcastRoom(roomId);
   });
+});
+
+app.get("/api/games", (_req, res) => {
+  res.json(readLog());
 });
 
 app.get("*", (_req, res) => {

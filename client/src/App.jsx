@@ -5,6 +5,7 @@ import WaitingRoom from "./components/WaitingRoom";
 import Countdown from "./components/Countdown";
 import GameRound from "./components/GameRound";
 import GameOver from "./components/GameOver";
+import AdminPage from "./components/AdminPage";
 
 export default function App() {
   const [screen, setScreen] = useState("lobby");
@@ -143,8 +144,17 @@ export default function App() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
+      {screen === "admin" && (
+        <AdminPage onBack={() => setScreen("lobby")} />
+      )}
       {screen === "lobby" && (
-        <Lobby onCreate={handleCreate} onJoin={handleJoin} error={error} loading={loading} />
+        <Lobby
+          onCreate={handleCreate}
+          onJoin={handleJoin}
+          error={error}
+          loading={loading}
+          onAdminAccess={() => setScreen("admin")}
+        />
       )}
       {screen === "waiting" && room && (
         <WaitingRoom
