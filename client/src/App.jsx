@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { socket } from "./socket";
+import { isMuted, toggleMute } from "./sounds";
 import Lobby from "./components/Lobby";
 import WaitingRoom from "./components/WaitingRoom";
 import Countdown from "./components/Countdown";
@@ -22,8 +23,10 @@ export default function App() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
+  const [chatError, setChatError] = useState(null);
   const [authUser, setAuthUser] = useState(null);
   const [authToken, setAuthToken] = useState(null);
+  const [muted, setMuted] = useState(isMuted);
 
   const screenRef = React.useRef(screen);
   useEffect(() => { screenRef.current = screen; }, [screen]);
@@ -196,7 +199,13 @@ export default function App() {
     socket.on("round:choices", onChoices);
     socket.on("round:reveal", onReveal);
     socket.on("game:over", onGameOver);
+    const onChatBlocked = ({ message }) => {
+      setChatError(message);
+      setTimeout(() => setChatError(null), 3000);
+    };
+
     socket.on("chat:message", onChatMessage);
+    socket.on("chat:blocked", onChatBlocked);
     socket.on("game:cancelled", onCancelled);
     socket.on("error", onError);
 
@@ -212,6 +221,7 @@ export default function App() {
       socket.off("round:reveal", onReveal);
       socket.off("game:over", onGameOver);
       socket.off("chat:message", onChatMessage);
+      socket.off("chat:blocked", onChatBlocked);
       socket.off("game:cancelled", onCancelled);
       socket.off("error", onError);
     };
@@ -274,8 +284,26 @@ export default function App() {
     setAuthToken(null);
   };
 
+  const handleToggleMute = () => setMuted(toggleMute());
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
+      {screen !== "lobby" && screen !== "admin" && (
+        <button
+          onClick={handleToggleMute}
+          title={muted ? "Unmute" : "Mute"}
+          style={{
+            position: "fixed", bottom: "16px", right: "16px", zIndex: 500,
+            background: "rgba(26,16,51,0.85)", border: "1px solid rgba(124,58,237,0.35)",
+            borderRadius: "50%", width: "40px", height: "40px",
+            fontSize: "1.1rem", cursor: "pointer", display: "flex",
+            alignItems: "center", justifyContent: "center",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+      )}
       {screen === "admin" && (
         <AdminPage onBack={() => setScreen("lobby")} />
       )}
@@ -300,6 +328,7 @@ export default function App() {
           error={error}
           chatMessages={chatMessages}
           onSendChat={handleSendChat}
+          chatError={chatError}
         />
       )}
       {screen === "countdown" && (
@@ -324,6 +353,7 @@ export default function App() {
           onLobby={handleBackToLobby}
           chatMessages={chatMessages}
           onSendChat={handleSendChat}
+          chatError={chatError}
         />
       )}
     </div>

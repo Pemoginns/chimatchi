@@ -6,6 +6,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { generateRounds } = require("./vocabulary");
+const { containsProfanity } = require("./profanity");
 const {
   logGame, readLog,
   upsertSession, readSessions,
@@ -289,10 +290,15 @@ io.on("connection", (socket) => {
     const lang = VALID_LANGUAGES.includes(language) ? language : "french";
     const roomId = generateId();
     const token = generateToken();
+    const playerNameClean = String(playerName || "Host").trim().slice(0, 20) || "Host";
+    if (containsProfanity(playerNameClean)) {
+      socket.emit("error", { message: "Name contains inappropriate language" });
+      return;
+    }
     const player = {
       id: socket.id,
       token,
-      name: String(playerName || "Host").trim().slice(0, 20) || "Host",
+      name: playerNameClean,
       userId: userId || null,
     };
     rooms.set(roomId, {
@@ -336,10 +342,15 @@ io.on("connection", (socket) => {
       return;
     }
     const token = generateToken();
+    const joinNameClean = String(playerName || "Player").trim().slice(0, 20) || "Player";
+    if (containsProfanity(joinNameClean)) {
+      socket.emit("error", { message: "Name contains inappropriate language" });
+      return;
+    }
     const player = {
       id: socket.id,
       token,
-      name: String(playerName || "Player").trim().slice(0, 20) || "Player",
+      name: joinNameClean,
       userId: userId || null,
     };
     room.players.push(player);
@@ -481,6 +492,10 @@ io.on("connection", (socket) => {
 
     const text = String(message || "").trim().slice(0, 200);
     if (!text) return;
+    if (containsProfanity(text)) {
+      socket.emit("chat:blocked", { message: "Message contains inappropriate language" });
+      return;
+    }
 
     const msg = {
       playerName: player.name,

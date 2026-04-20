@@ -1,10 +1,16 @@
 import React, { useEffect, useState } from "react";
+import { playCountdownTick, playGameStart } from "../sounds";
 
 export default function Countdown({ value }) {
   const [animate, setAnimate] = useState(false);
 
   useEffect(() => {
+    playGameStart();
+  }, []);
+
+  useEffect(() => {
     setAnimate(true);
+    playCountdownTick();
     const t = setTimeout(() => setAnimate(false), 400);
     return () => clearTimeout(t);
   }, [value]);

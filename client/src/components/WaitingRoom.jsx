@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { playPlayerJoin, playChat } from "../sounds";
 
 const LANG_META = {
   french:  { flag: "🇫🇷", name: "French" },
@@ -8,16 +9,31 @@ const LANG_META = {
 
 const QUICK_EMOTES = ["👋", "🔥", "😄", "💪", "😂", "🤔"];
 
-export default function WaitingRoom({ room, playerId, onStart, onCancel, error, chatMessages, onSendChat }) {
+export default function WaitingRoom({ room, playerId, onStart, onCancel, error, chatMessages, onSendChat, chatError }) {
   const [copied, setCopied] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const chatEndRef = useRef(null);
+  const prevPlayerCount = useRef(room.players.length);
+  const prevChatLength = useRef(chatMessages.length);
   const isHost = room.host === playerId;
   const lang = LANG_META[room.language] || LANG_META.french;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (room.players.length > prevPlayerCount.current) playPlayerJoin();
+    prevPlayerCount.current = room.players.length;
+  }, [room.players.length]);
+
+  useEffect(() => {
+    if (chatMessages.length > prevChatLength.current) {
+      const last = chatMessages[chatMessages.length - 1];
+      if (last && last.playerId !== playerId) playChat();
+    }
+    prevChatLength.current = chatMessages.length;
+  }, [chatMessages.length]);
 
   const copyCode = () => {
     navigator.clipboard.writeText(room.roomId).then(() => {
@@ -98,6 +114,7 @@ export default function WaitingRoom({ room, playerId, onStart, onCancel, error, 
             <button key={e} style={styles.emoteBtn} onClick={() => sendEmote(e)}>{e}</button>
           ))}
         </div>
+        {chatError && <p style={styles.chatError}>{chatError}</p>}
         <div style={styles.chatInputRow}>
           <input
             style={styles.chatInput}
@@ -275,6 +292,14 @@ const styles = {
     fontWeight: 800,
     padding: "0 14px",
     cursor: "pointer",
+  },
+  chatError: {
+    color: "#EF4444",
+    fontSize: "0.78rem",
+    background: "rgba(239,68,68,0.1)",
+    borderRadius: "6px",
+    padding: "5px 10px",
+    margin: 0,
   },
   error: {
     color: "#EF4444", fontSize: "0.85rem",

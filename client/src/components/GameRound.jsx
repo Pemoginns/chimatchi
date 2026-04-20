@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { playWordReveal, playChoicesReveal, playCorrect, playWrong } from "../sounds";
 
 const WORD_DISPLAY_MS = 3000;
 const ANSWER_WINDOW_MS = 8000;
@@ -23,9 +24,16 @@ export default function GameRound({ roundData, choicesData, revealData, playerId
   const choicesLabel = toEnglish ? "What does it mean in English?" : `What does it mean in ${lang.name}?`;
 
   useEffect(() => {
+    if (!revealData) return;
+    if (revealData.winnerId === playerId) playCorrect();
+    else playWrong();
+  }, [revealData]);
+
+  useEffect(() => {
     setSelected(null);
     setWordProgress(100);
     setAnswerProgress(100);
+    playWordReveal();
 
     const start = Date.now();
     wordInterval.current = setInterval(() => {
@@ -40,6 +48,7 @@ export default function GameRound({ roundData, choicesData, revealData, playerId
 
   useEffect(() => {
     if (!choicesData) return;
+    playChoicesReveal();
     setAnswerProgress(100);
     const start = Date.now();
     answerInterval.current = setInterval(() => {

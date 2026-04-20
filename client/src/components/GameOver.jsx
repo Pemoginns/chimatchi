@@ -1,12 +1,27 @@
 import React, { useState, useRef, useEffect } from "react";
+import { playWin, playLose, playChat } from "../sounds";
 
 const REACTIONS = ["🎉", "🔥", "😭", "💪", "👏", "😂"];
 
-export default function GameOver({ data, playerId, isHost, onRestart, onLobby, chatMessages, onSendChat }) {
+export default function GameOver({ data, playerId, isHost, onRestart, onLobby, chatMessages, onSendChat, chatError }) {
   const [chatInput, setChatInput] = useState("");
   const chatEndRef = useRef(null);
+  const prevChatLength = useRef(chatMessages.length);
 
   const isWinner = data.winnerId === playerId;
+
+  useEffect(() => {
+    if (isWinner) playWin();
+    else playLose();
+  }, []);
+
+  useEffect(() => {
+    if (chatMessages.length > prevChatLength.current) {
+      const last = chatMessages[chatMessages.length - 1];
+      if (last && last.playerId !== playerId) playChat();
+    }
+    prevChatLength.current = chatMessages.length;
+  }, [chatMessages.length]);
   const sortedPlayers = [...(data.players || [])].sort(
     (a, b) => (data.scores[b.id] || 0) - (data.scores[a.id] || 0)
   );
@@ -74,6 +89,7 @@ export default function GameOver({ data, playerId, isHost, onRestart, onLobby, c
           ))}
           <div ref={chatEndRef} />
         </div>
+        {chatError && <p style={styles.chatError}>{chatError}</p>}
         <div style={styles.chatInputRow}>
           <input
             style={styles.chatInput}
@@ -190,6 +206,14 @@ const styles = {
     fontWeight: 800,
     padding: "0 14px",
     cursor: "pointer",
+  },
+  chatError: {
+    color: "#EF4444",
+    fontSize: "0.78rem",
+    background: "rgba(239,68,68,0.1)",
+    borderRadius: "6px",
+    padding: "5px 10px",
+    margin: 0,
   },
   actions: {
     display: "flex",
