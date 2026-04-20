@@ -3,10 +3,12 @@ const http = require("http");
 const path = require("path");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const rateLimit = require("express-rate-limit");
 const { generateRounds } = require("./vocabulary");
 
 const app = express();
 app.use(cors());
+app.use(rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
 app.use(express.static(path.join(__dirname, "../client/dist")));
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -17,7 +19,7 @@ const PORT = process.env.PORT || 3001;
 const POINTS_TO_WIN = 5;
 const WORD_DISPLAY_MS = 5000;
 const ANSWER_WINDOW_MS = 8000;
-const COUNTDOWN_SECS = 3;
+const COUNTDOWN_SECS = 2;
 
 const rooms = new Map();
 
@@ -155,7 +157,7 @@ io.on("connection", (socket) => {
 
   socket.on("game:create", ({ playerName }) => {
     const roomId = generateId();
-    const player = { id: socket.id, name: playerName || "Host" };
+    const player = { id: socket.id, name: String(playerName || "Host").trim().slice(0, 20) || "Host" };
     rooms.set(roomId, {
       host: socket.id,
       players: [player],
@@ -175,7 +177,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("game:join", ({ roomId, playerName }) => {
-    const room = getRoom(roomId);
+    const room = getRoom(String(roomId || "").trim().toUpperCase().slice(0, 6));
     if (!room) {
       socket.emit("error", { message: "Game not found" });
       return;
@@ -184,7 +186,7 @@ io.on("connection", (socket) => {
       socket.emit("error", { message: "Game already started" });
       return;
     }
-    const player = { id: socket.id, name: playerName || "Player" };
+    const player = { id: socket.id, name: String(playerName || "Player").trim().slice(0, 20) || "Player" };
     room.players.push(player);
     room.scores[socket.id] = 0;
     socket.join(roomId);
@@ -260,7 +262,7 @@ io.on("connection", (socket) => {
   });
 });
 
-app.get("*", (req, res) => {
+app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "../client/dist", "index.html"));
 });
 

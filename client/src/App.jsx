@@ -17,83 +17,102 @@ export default function App() {
   const [revealData, setRevealData] = useState(null);
   const [gameOverData, setGameOverData] = useState(null);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const screenRef = React.useRef(screen);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
 
   useEffect(() => {
     socket.connect();
 
-    socket.on("game:created", ({ roomId, playerId }) => {
+    const onCreated = ({ roomId, playerId }) => {
       setRoomId(roomId);
       setPlayerId(playerId);
       setScreen("waiting");
       setError(null);
-    });
+      setLoading(false);
+    };
 
-    socket.on("game:joined", ({ roomId, playerId }) => {
+    const onJoined = ({ roomId, playerId }) => {
       setRoomId(roomId);
       setPlayerId(playerId);
       setScreen("waiting");
       setError(null);
-    });
+      setLoading(false);
+    };
 
-    socket.on("room:update", (data) => {
+    const onRoomUpdate = (data) => {
       setRoom(data);
-      if (data.state === "waiting" && screen !== "lobby") {
+      if (data.state === "waiting" && screenRef.current !== "lobby") {
         setScreen("waiting");
         setRoundData(null);
         setChoicesData(null);
         setRevealData(null);
         setGameOverData(null);
       }
-    });
+    };
 
-    socket.on("countdown:tick", ({ count }) => {
+    const onCountdown = ({ count }) => {
       setCountdownValue(count);
       setScreen("countdown");
-    });
+    };
 
-    socket.on("round:word", (data) => {
+    const onRoundWord = (data) => {
       setRoundData(data);
       setChoicesData(null);
       setRevealData(null);
       setScreen("round");
-    });
+    };
 
-    socket.on("round:choices", (data) => {
+    const onChoices = (data) => {
       setChoicesData(data);
       setRevealData(null);
-    });
+    };
 
-    socket.on("round:reveal", (data) => {
-      setRevealData(data);
-    });
+    const onReveal = (data) => setRevealData(data);
 
-    socket.on("game:over", (data) => {
+    const onGameOver = (data) => {
       setGameOverData(data);
       setScreen("gameover");
-    });
+    };
 
-    socket.on("error", ({ message }) => {
+    const onError = ({ message }) => {
       setError(message);
-    });
+      setLoading(false);
+    };
+
+    socket.on("game:created", onCreated);
+    socket.on("game:joined", onJoined);
+    socket.on("room:update", onRoomUpdate);
+    socket.on("countdown:tick", onCountdown);
+    socket.on("round:word", onRoundWord);
+    socket.on("round:choices", onChoices);
+    socket.on("round:reveal", onReveal);
+    socket.on("game:over", onGameOver);
+    socket.on("error", onError);
 
     return () => {
-      socket.off("game:created");
-      socket.off("game:joined");
-      socket.off("room:update");
-      socket.off("countdown:tick");
-      socket.off("round:word");
-      socket.off("round:choices");
-      socket.off("round:reveal");
-      socket.off("game:over");
-      socket.off("error");
+      socket.off("game:created", onCreated);
+      socket.off("game:joined", onJoined);
+      socket.off("room:update", onRoomUpdate);
+      socket.off("countdown:tick", onCountdown);
+      socket.off("round:word", onRoundWord);
+      socket.off("round:choices", onChoices);
+      socket.off("round:reveal", onReveal);
+      socket.off("game:over", onGameOver);
+      socket.off("error", onError);
     };
-  }, [screen]);
+  }, []);
 
   const handleCreate = (playerName) => {
+    setLoading(true);
+    setError(null);
     socket.emit("game:create", { playerName });
   };
 
   const handleJoin = (code, playerName) => {
+    setLoading(true);
+    setError(null);
     socket.emit("game:join", { roomId: code.toUpperCase(), playerName });
   };
 
@@ -125,7 +144,7 @@ export default function App() {
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
       {screen === "lobby" && (
-        <Lobby onCreate={handleCreate} onJoin={handleJoin} error={error} />
+        <Lobby onCreate={handleCreate} onJoin={handleJoin} error={error} loading={loading} />
       )}
       {screen === "waiting" && room && (
         <WaitingRoom

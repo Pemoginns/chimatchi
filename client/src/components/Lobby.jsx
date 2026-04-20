@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export default function Lobby({ onCreate, onJoin, error }) {
+export default function Lobby({ onCreate, onJoin, error, loading }) {
   const [playerName, setPlayerName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [tab, setTab] = useState("create");
@@ -68,19 +68,19 @@ export default function Lobby({ onCreate, onJoin, error }) {
 
           {tab === "create" ? (
             <button
-              style={{ ...styles.btn, ...styles.btnPrimary }}
+              style={{ ...styles.btn, ...styles.btnPrimary, ...(loading ? styles.btnLoading : {}) }}
               onClick={handleCreate}
-              disabled={!playerName.trim()}
+              disabled={!playerName.trim() || loading}
             >
-              Create Game
+              {loading ? "Creating…" : "Create Game"}
             </button>
           ) : (
             <button
-              style={{ ...styles.btn, ...styles.btnOrange }}
+              style={{ ...styles.btn, ...styles.btnOrange, ...(loading ? styles.btnLoading : {}) }}
               onClick={handleJoin}
-              disabled={!playerName.trim() || !joinCode.trim()}
+              disabled={!playerName.trim() || !joinCode.trim() || loading}
             >
-              Join Game
+              {loading ? "Joining…" : "Join Game"}
             </button>
           )}
         </div>
@@ -205,6 +205,10 @@ const styles = {
     background: "linear-gradient(135deg, #F97316, #EA580C)",
     color: "#fff",
     boxShadow: "0 4px 20px rgba(249,115,22,0.4)",
+  },
+  btnLoading: {
+    opacity: 0.7,
+    cursor: "not-allowed",
   },
   langBadge: {
     display: "flex",
