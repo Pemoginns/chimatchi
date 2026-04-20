@@ -8,6 +8,7 @@ import GameOver from "./components/GameOver";
 import AdminPage from "./components/AdminPage";
 
 const STORAGE_KEY = "pondre_session";
+const AUTH_KEY = "pondre_auth";
 
 export default function App() {
   const [screen, setScreen] = useState("lobby");
@@ -20,11 +21,43 @@ export default function App() {
   const [gameOverData, setGameOverData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [authUser, setAuthUser] = useState(null);
+  const [authToken, setAuthToken] = useState(null);
 
   const screenRef = React.useRef(screen);
   useEffect(() => { screenRef.current = screen; }, [screen]);
 
   const isRejoinAttempt = React.useRef(false);
+
+  // Restore auth session on load
+  useEffect(() => {
+    const saved = localStorage.getItem(AUTH_KEY);
+    if (!saved) return;
+    try {
+      const { token, user } = JSON.parse(saved);
+      if (token && user) {
+        setAuthToken(token);
+        setAuthUser(user);
+        // Refresh user data from server
+        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data?.user) {
+              setAuthUser(data.user);
+              localStorage.setItem(AUTH_KEY, JSON.stringify({ token, user: data.user }));
+            } else {
+              localStorage.removeItem(AUTH_KEY);
+              setAuthUser(null);
+              setAuthToken(null);
+            }
+          })
+          .catch(() => {});
+      }
+    } catch {
+      localStorage.removeItem(AUTH_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     socket.connect();
@@ -49,6 +82,7 @@ export default function App() {
       setScreen("waiting");
       setError(null);
       setLoading(false);
+      setChatMessages([]);
     };
 
     const onJoined = ({ roomId, playerId, token }) => {
@@ -57,6 +91,7 @@ export default function App() {
       setScreen("waiting");
       setError(null);
       setLoading(false);
+      setChatMessages([]);
     };
 
     const onRejoined = ({ playerId, roomData, roundData: rd, choicesData: cd }) => {
@@ -87,6 +122,7 @@ export default function App() {
         setChoicesData(null);
         setRevealData(null);
         setGameOverData(null);
+        setChatMessages([]);
       }
     };
 
@@ -112,6 +148,22 @@ export default function App() {
     const onGameOver = (data) => {
       setGameOverData(data);
       setScreen("gameover");
+      // Refresh user stats after game ends
+      if (authToken) {
+        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${authToken}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data?.user) {
+              setAuthUser(data.user);
+              localStorage.setItem(AUTH_KEY, JSON.stringify({ token: authToken, user: data.user }));
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    const onChatMessage = (msg) => {
+      setChatMessages(prev => [...prev.slice(-99), msg]);
     };
 
     const onError = ({ message }) => {
@@ -134,6 +186,7 @@ export default function App() {
     socket.on("round:choices", onChoices);
     socket.on("round:reveal", onReveal);
     socket.on("game:over", onGameOver);
+    socket.on("chat:message", onChatMessage);
     socket.on("error", onError);
 
     return () => {
@@ -147,20 +200,21 @@ export default function App() {
       socket.off("round:choices", onChoices);
       socket.off("round:reveal", onReveal);
       socket.off("game:over", onGameOver);
+      socket.off("chat:message", onChatMessage);
       socket.off("error", onError);
     };
-  }, []);
+  }, [authToken]);
 
-  const handleCreate = (playerName, difficulty) => {
+  const handleCreate = (playerName, difficulty, language) => {
     setLoading(true);
     setError(null);
-    socket.emit("game:create", { playerName, difficulty });
+    socket.emit("game:create", { playerName, difficulty, language, userId: authUser?.userId || null });
   };
 
   const handleJoin = (code, playerName) => {
     setLoading(true);
     setError(null);
-    socket.emit("game:join", { roomId: code.toUpperCase(), playerName });
+    socket.emit("game:join", { roomId: code.toUpperCase(), playerName, userId: authUser?.userId || null });
   };
 
   const handleStart = () => {
@@ -175,6 +229,10 @@ export default function App() {
     socket.emit("game:restart");
   };
 
+  const handleSendChat = (message) => {
+    socket.emit("chat:send", { message });
+  };
+
   const handleBackToLobby = () => {
     localStorage.removeItem(STORAGE_KEY);
     setScreen("lobby");
@@ -184,8 +242,20 @@ export default function App() {
     setChoicesData(null);
     setRevealData(null);
     setGameOverData(null);
+    setChatMessages([]);
     socket.disconnect();
     socket.connect();
+  };
+
+  const handleAuthSuccess = (user, token) => {
+    setAuthUser(user);
+    setAuthToken(token);
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem(AUTH_KEY);
+    setAuthUser(null);
+    setAuthToken(null);
   };
 
   return (
@@ -200,6 +270,9 @@ export default function App() {
           error={error}
           loading={loading}
           onAdminAccess={() => setScreen("admin")}
+          authUser={authUser}
+          onAuthSuccess={handleAuthSuccess}
+          onSignOut={handleSignOut}
         />
       )}
       {screen === "waiting" && room && (
@@ -208,6 +281,8 @@ export default function App() {
           playerId={playerId}
           onStart={handleStart}
           error={error}
+          chatMessages={chatMessages}
+          onSendChat={handleSendChat}
         />
       )}
       {screen === "countdown" && (
@@ -230,6 +305,8 @@ export default function App() {
           isHost={room?.host === playerId}
           onRestart={handleRestart}
           onLobby={handleBackToLobby}
+          chatMessages={chatMessages}
+          onSendChat={handleSendChat}
         />
       )}
     </div>

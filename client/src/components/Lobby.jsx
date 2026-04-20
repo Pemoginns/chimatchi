@@ -1,16 +1,25 @@
 import React, { useState } from "react";
 import PasswordModal from "./PasswordModal";
+import Auth from "./Auth";
 
-export default function Lobby({ onCreate, onJoin, error, loading, onAdminAccess }) {
-  const [playerName, setPlayerName] = useState("");
+const LANGUAGES = [
+  { key: "french",  flag: "🇫🇷", label: "French" },
+  { key: "irish",   flag: "🇮🇪", label: "Irish" },
+  { key: "spanish", flag: "🇪🇸", label: "Spanish" },
+];
+
+export default function Lobby({ onCreate, onJoin, error, loading, onAdminAccess, authUser, onAuthSuccess, onSignOut }) {
+  const [playerName, setPlayerName] = useState(authUser?.username || "");
   const [joinCode, setJoinCode] = useState("");
   const [tab, setTab] = useState("create");
   const [difficulty, setDifficulty] = useState(1);
+  const [language, setLanguage] = useState("french");
   const [showModal, setShowModal] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
 
   const handleCreate = () => {
     if (!playerName.trim()) return;
-    onCreate(playerName.trim(), difficulty);
+    onCreate(playerName.trim(), difficulty, language);
   };
 
   const handleJoin = () => {
@@ -18,15 +27,38 @@ export default function Lobby({ onCreate, onJoin, error, loading, onAdminAccess 
     onJoin(joinCode.trim(), playerName.trim());
   };
 
+  const selectedLang = LANGUAGES.find(l => l.key === language);
+
   return (
     <div style={styles.container}>
+      {/* Admin lock */}
       <button style={styles.lockBtn} onClick={() => setShowModal(true)} title="Admin">🔒</button>
+
+      {/* Auth button */}
+      {authUser ? (
+        <div style={styles.userBadge}>
+          <span style={styles.userIcon}>👤</span>
+          <span style={styles.userName}>{authUser.username}</span>
+          <span style={styles.userWins}>🏆 {authUser.wins}</span>
+          <button style={styles.signOutBtn} onClick={onSignOut}>Sign out</button>
+        </div>
+      ) : (
+        <button style={styles.authBtn} onClick={() => setShowAuth(true)}>Sign In</button>
+      )}
+
       {showModal && (
         <PasswordModal
           onSuccess={() => { setShowModal(false); onAdminAccess(); }}
           onClose={() => setShowModal(false)}
         />
       )}
+      {showAuth && (
+        <Auth
+          onSuccess={(user, token) => { onAuthSuccess(user, token); setShowAuth(false); setPlayerName(user.username); }}
+          onClose={() => setShowAuth(false)}
+        />
+      )}
+
       <div style={styles.hero}>
         <div style={styles.logo}>🧠</div>
         <h1 style={styles.title}>Pondre</h1>
@@ -76,6 +108,20 @@ export default function Lobby({ onCreate, onJoin, error, loading, onAdminAccess 
 
           {tab === "create" && (
             <>
+              <label style={styles.label}>Language</label>
+              <div style={styles.langRow}>
+                {LANGUAGES.map(({ key, flag, label }) => (
+                  <button
+                    key={key}
+                    style={{ ...styles.langBtn, ...(language === key ? styles.langBtnActive : {}) }}
+                    onClick={() => setLanguage(key)}
+                  >
+                    <span style={styles.langFlag}>{flag}</span>
+                    <span style={styles.langBtnLabel}>{label}</span>
+                  </button>
+                ))}
+              </div>
+
               <label style={styles.label}>Difficulty</label>
               <div style={styles.diffRow}>
                 {[
@@ -129,8 +175,8 @@ export default function Lobby({ onCreate, onJoin, error, loading, onAdminAccess 
       </div>
 
       <div style={styles.langBadge}>
-        <span style={styles.flag}>🇫🇷</span>
-        <span style={styles.langText}>French ↔ English</span>
+        <span style={styles.flag}>{selectedLang?.flag || "🇫🇷"}</span>
+        <span style={styles.langText}>{selectedLang?.label || "French"} ↔ English</span>
       </div>
     </div>
   );
@@ -160,13 +206,47 @@ const styles = {
     padding: "4px",
     lineHeight: 1,
   },
-  hero: {
-    textAlign: "center",
+  authBtn: {
+    position: "absolute",
+    top: "16px",
+    left: "16px",
+    background: "rgba(124,58,237,0.15)",
+    border: "1px solid rgba(124,58,237,0.4)",
+    borderRadius: "20px",
+    color: "#A78BFA",
+    fontSize: "0.8rem",
+    fontWeight: 700,
+    padding: "6px 14px",
+    cursor: "pointer",
   },
-  logo: {
-    fontSize: "3.5rem",
-    marginBottom: "8px",
+  userBadge: {
+    position: "absolute",
+    top: "12px",
+    left: "16px",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    background: "rgba(124,58,237,0.15)",
+    border: "1px solid rgba(124,58,237,0.3)",
+    borderRadius: "20px",
+    padding: "6px 12px",
+    maxWidth: "calc(100vw - 80px)",
   },
+  userIcon: { fontSize: "0.9rem" },
+  userName: { color: "#F5F3FF", fontSize: "0.8rem", fontWeight: 700 },
+  userWins: { color: "#F97316", fontSize: "0.8rem", fontWeight: 700 },
+  signOutBtn: {
+    background: "transparent",
+    border: "none",
+    color: "#A78BFA",
+    fontSize: "0.7rem",
+    cursor: "pointer",
+    padding: "0 0 0 4px",
+    fontWeight: 600,
+    opacity: 0.7,
+  },
+  hero: { textAlign: "center" },
+  logo: { fontSize: "3.5rem", marginBottom: "8px" },
   title: {
     fontSize: "3rem",
     fontWeight: 900,
@@ -175,11 +255,7 @@ const styles = {
     WebkitTextFillColor: "transparent",
     letterSpacing: "-0.02em",
   },
-  subtitle: {
-    color: "#A78BFA",
-    fontSize: "1rem",
-    marginTop: "4px",
-  },
+  subtitle: { color: "#A78BFA", fontSize: "1rem", marginTop: "4px" },
   card: {
     background: "#1A1033",
     border: "1px solid rgba(124,58,237,0.3)",
@@ -212,11 +288,7 @@ const styles = {
     color: "#fff",
     boxShadow: "0 2px 8px rgba(124,58,237,0.4)",
   },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
+  form: { display: "flex", flexDirection: "column", gap: "12px" },
   label: {
     fontSize: "0.8rem",
     fontWeight: 700,
@@ -242,6 +314,46 @@ const styles = {
     borderRadius: "8px",
     padding: "8px 12px",
   },
+  langRow: { display: "flex", gap: "8px" },
+  langBtn: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "3px",
+    padding: "10px 6px",
+    borderRadius: "12px",
+    background: "#0F0A1E",
+    border: "1.5px solid rgba(124,58,237,0.25)",
+    cursor: "pointer",
+    transition: "all 0.15s",
+  },
+  langBtnActive: {
+    background: "rgba(124,58,237,0.2)",
+    border: "1.5px solid #7C3AED",
+  },
+  langFlag: { fontSize: "1.4rem" },
+  langBtnLabel: { color: "#F5F3FF", fontWeight: 700, fontSize: "0.8rem" },
+  diffRow: { display: "flex", gap: "8px" },
+  diffBtn: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "3px",
+    padding: "10px 6px",
+    borderRadius: "12px",
+    background: "#0F0A1E",
+    border: "1.5px solid rgba(124,58,237,0.25)",
+    cursor: "pointer",
+    transition: "all 0.15s",
+  },
+  diffBtnActive: {
+    background: "rgba(124,58,237,0.2)",
+    border: "1.5px solid #7C3AED",
+  },
+  diffLabel: { color: "#F5F3FF", fontWeight: 700, fontSize: "0.85rem" },
+  diffSub: { color: "#A78BFA", fontSize: "0.65rem", fontWeight: 600 },
   btn: {
     padding: "16px",
     borderRadius: "14px",
@@ -261,41 +373,7 @@ const styles = {
     color: "#fff",
     boxShadow: "0 4px 20px rgba(249,115,22,0.4)",
   },
-  btnLoading: {
-    opacity: 0.7,
-    cursor: "not-allowed",
-  },
-  diffRow: {
-    display: "flex",
-    gap: "8px",
-  },
-  diffBtn: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "3px",
-    padding: "10px 6px",
-    borderRadius: "12px",
-    background: "#0F0A1E",
-    border: "1.5px solid rgba(124,58,237,0.25)",
-    cursor: "pointer",
-    transition: "all 0.15s",
-  },
-  diffBtnActive: {
-    background: "rgba(124,58,237,0.2)",
-    border: "1.5px solid #7C3AED",
-  },
-  diffLabel: {
-    color: "#F5F3FF",
-    fontWeight: 700,
-    fontSize: "0.85rem",
-  },
-  diffSub: {
-    color: "#A78BFA",
-    fontSize: "0.65rem",
-    fontWeight: 600,
-  },
+  btnLoading: { opacity: 0.7, cursor: "not-allowed" },
   coffeeLink: {
     textAlign: "center",
     color: "#A78BFA",

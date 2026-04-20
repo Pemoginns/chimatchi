@@ -1,16 +1,23 @@
 const express = require("express");
 const http = require("http");
 const path = require("path");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { generateRounds } = require("./vocabulary");
-const { logGame, readLog, upsertSession, readSessions } = require("./gameLog");
+const {
+  logGame, readLog,
+  upsertSession, readSessions,
+  readUsers, findUserByUsername, findUserById, createUser, updateUserStats,
+} = require("./gameLog");
 
 const app = express();
 app.use(cors());
-app.use(rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
+app.use(express.json());
+app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false }));
 app.use(express.static(path.join(__dirname, "../client/dist")));
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
@@ -23,9 +30,54 @@ const WORD_DISPLAY_MS = 3000;
 const ANSWER_WINDOW_MS = 8000;
 const COUNTDOWN_SECS = 2;
 const RECONNECT_GRACE_MS = 10000;
+const AUTH_SECRET = process.env.JWT_SECRET || "pondre-secret-2024";
+const VALID_LANGUAGES = ["french", "irish", "spanish"];
+
+// ─── Auth helpers ────────────────────────────────────────────────────────────
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, "sha512").toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  const [salt, hash] = storedHash.split(":");
+  const inputHash = crypto.pbkdf2Sync(password, salt, 10000, 64, "sha512").toString("hex");
+  return hash === inputHash;
+}
+
+function generateAuthToken(userId, username) {
+  const payload = Buffer.from(JSON.stringify({ userId, username, iat: Date.now() })).toString("base64url");
+  const sig = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function verifyAuthToken(token) {
+  try {
+    const [payload, sig] = token.split(".");
+    const expectedSig = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
+    if (sig !== expectedSig) return null;
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+  const decoded = verifyAuthToken(token);
+  if (!decoded) return res.status(401).json({ error: "Invalid token" });
+  req.userId = decoded.userId;
+  req.username = decoded.username;
+  next();
+}
+
+// ─── Room management ─────────────────────────────────────────────────────────
 
 const rooms = new Map();
-// token -> { timer, roomId, socketId }
 const pendingDisconnects = new Map();
 
 function generateId() {
@@ -34,6 +86,10 @@ function generateId() {
 
 function generateToken() {
   return Math.random().toString(36).substring(2, 14).toUpperCase();
+}
+
+function generateUserId() {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
 }
 
 function getRoom(id) {
@@ -49,8 +105,11 @@ function broadcastRoom(roomId) {
     players: room.players,
     state: room.state,
     difficulty: room.difficulty,
+    language: room.language,
   });
 }
+
+// ─── Game flow ───────────────────────────────────────────────────────────────
 
 function startCountdown(roomId) {
   const room = getRoom(roomId);
@@ -90,6 +149,7 @@ function startRound(roomId) {
   io.to(roomId).emit("round:word", {
     prompt: round.prompt,
     direction: round.direction,
+    language: round.language,
     roundIndex: room.roundIndex,
     totalRounds: room.rounds.length,
     scores: room.scores,
@@ -110,6 +170,7 @@ function showChoices(roomId) {
   io.to(roomId).emit("round:choices", {
     prompt: round.prompt,
     direction: round.direction,
+    language: round.language,
     choices: round.choices,
     roundIndex: room.roundIndex,
   });
@@ -155,10 +216,19 @@ function endGame(roomId, winnerId) {
   if (!room) return;
   room.state = "game_over";
   const winnerPlayer = room.players.find(p => p.id === winnerId);
+
+  // Update user account stats
+  room.players.forEach(p => {
+    if (p.userId) {
+      updateUserStats(p.userId, { win: p.id === winnerId });
+    }
+  });
+
   logGame({
     gameId: roomId,
     timestamp: new Date().toISOString(),
     difficulty: room.difficulty || 1,
+    language: room.language || "french",
     players: room.players.map(p => ({ name: p.name, score: room.scores[p.id] || 0 })),
     winner: winnerPlayer ? winnerPlayer.name : "No one",
     roundsPlayed: room.roundIndex,
@@ -177,7 +247,6 @@ function endGame(roomId, winnerId) {
   });
 }
 
-// Called after the 10s grace period expires — actually removes the player.
 function actuallyRemovePlayer(roomId, socketId) {
   const room = getRoom(roomId);
   if (!room) return;
@@ -210,26 +279,36 @@ function actuallyRemovePlayer(roomId, socketId) {
   broadcastRoom(roomId);
 }
 
+// ─── Socket handlers ─────────────────────────────────────────────────────────
+
 io.on("connection", (socket) => {
   console.log("connected:", socket.id);
 
-  socket.on("game:create", ({ playerName, difficulty }) => {
+  socket.on("game:create", ({ playerName, difficulty, language, userId }) => {
     const diff = Math.min(3, Math.max(1, parseInt(difficulty) || 1));
+    const lang = VALID_LANGUAGES.includes(language) ? language : "french";
     const roomId = generateId();
     const token = generateToken();
-    const player = { id: socket.id, token, name: String(playerName || "Host").trim().slice(0, 20) || "Host" };
+    const player = {
+      id: socket.id,
+      token,
+      name: String(playerName || "Host").trim().slice(0, 20) || "Host",
+      userId: userId || null,
+    };
     rooms.set(roomId, {
       host: socket.id,
       players: [player],
       state: "waiting",
       difficulty: diff,
-      rounds: generateRounds(20, diff),
+      language: lang,
+      rounds: generateRounds(20, diff, lang),
       roundIndex: 0,
       scores: { [socket.id]: 0 },
       currentRound: null,
       roundAnswered: false,
       wordTimer: null,
       answerTimer: null,
+      chatMessages: [],
     });
     socket.join(roomId);
     socket.roomId = roomId;
@@ -239,12 +318,13 @@ io.on("connection", (socket) => {
       createdAt: new Date().toISOString(),
       host: player.name,
       difficulty: diff,
+      language: lang,
       players: [player.name],
       status: "waiting",
     });
   });
 
-  socket.on("game:join", ({ roomId, playerName }) => {
+  socket.on("game:join", ({ roomId, playerName, userId }) => {
     const normalizedId = String(roomId || "").trim().toUpperCase().slice(0, 6);
     const room = getRoom(normalizedId);
     if (!room) {
@@ -256,7 +336,12 @@ io.on("connection", (socket) => {
       return;
     }
     const token = generateToken();
-    const player = { id: socket.id, token, name: String(playerName || "Player").trim().slice(0, 20) || "Player" };
+    const player = {
+      id: socket.id,
+      token,
+      name: String(playerName || "Player").trim().slice(0, 20) || "Player",
+      userId: userId || null,
+    };
     room.players.push(player);
     room.scores[socket.id] = 0;
     socket.join(normalizedId);
@@ -280,7 +365,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Cancel the pending disconnect timer if still within grace period
     const pending = pendingDisconnects.get(token);
     if (pending) {
       clearTimeout(pending.timer);
@@ -288,8 +372,6 @@ io.on("connection", (socket) => {
     }
 
     const oldSocketId = player.id;
-
-    // Update all references from old socket.id to new socket.id
     room.scores[socket.id] = room.scores[oldSocketId] || 0;
     if (oldSocketId !== socket.id) delete room.scores[oldSocketId];
     if (room.host === oldSocketId) room.host = socket.id;
@@ -298,7 +380,6 @@ io.on("connection", (socket) => {
     socket.join(normalizedId);
     socket.roomId = normalizedId;
 
-    // Build response with enough state to restore the correct screen
     const response = {
       roomId: normalizedId,
       playerId: socket.id,
@@ -309,6 +390,7 @@ io.on("connection", (socket) => {
         players: room.players,
         state: room.state,
         difficulty: room.difficulty,
+        language: room.language,
       },
     };
 
@@ -317,6 +399,7 @@ io.on("connection", (socket) => {
       response.roundData = {
         prompt: room.currentRound.prompt,
         direction: room.currentRound.direction,
+        language: room.currentRound.language,
         roundIndex: room.roundIndex,
         totalRounds: room.rounds.length,
         scores: room.scores,
@@ -325,6 +408,7 @@ io.on("connection", (socket) => {
         response.choicesData = {
           prompt: room.currentRound.prompt,
           direction: room.currentRound.direction,
+          language: room.currentRound.language,
           choices: room.currentRound.choices,
           roundIndex: room.roundIndex,
         };
@@ -368,14 +452,39 @@ io.on("connection", (socket) => {
     clearTimeout(room.answerTimer);
 
     room.state = "waiting";
-    room.rounds = generateRounds(20, room.difficulty);
+    room.rounds = generateRounds(20, room.difficulty, room.language || "french");
     room.roundIndex = 0;
     room.scores = {};
     room.players.forEach(p => { room.scores[p.id] = 0; });
     room.currentRound = null;
     room.roundAnswered = false;
+    room.chatMessages = [];
 
     broadcastRoom(roomId);
+  });
+
+  socket.on("chat:send", ({ message }) => {
+    const roomId = socket.roomId;
+    const room = getRoom(roomId);
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+
+    const text = String(message || "").trim().slice(0, 200);
+    if (!text) return;
+
+    const msg = {
+      playerName: player.name,
+      playerId: socket.id,
+      message: text,
+      timestamp: Date.now(),
+    };
+
+    room.chatMessages = room.chatMessages || [];
+    room.chatMessages.push(msg);
+    if (room.chatMessages.length > 100) room.chatMessages.shift();
+
+    io.to(roomId).emit("chat:message", msg);
   });
 
   socket.on("disconnect", () => {
@@ -388,8 +497,6 @@ io.on("connection", (socket) => {
     if (!player) return;
 
     const token = player.token;
-
-    // Give the player 10 seconds to reconnect before removing them
     const timer = setTimeout(() => {
       pendingDisconnects.delete(token);
       actuallyRemovePlayer(roomId, socket.id);
@@ -398,6 +505,72 @@ io.on("connection", (socket) => {
     pendingDisconnects.set(token, { timer, roomId, socketId: socket.id });
   });
 });
+
+// ─── Auth REST endpoints ──────────────────────────────────────────────────────
+
+const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/auth/register", authLimiter, (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password required" });
+  }
+  const name = String(username).trim().slice(0, 20);
+  if (name.length < 2) {
+    return res.status(400).json({ error: "Username must be at least 2 characters" });
+  }
+  if (String(password).length < 4) {
+    return res.status(400).json({ error: "Password must be at least 4 characters" });
+  }
+  if (findUserByUsername(name)) {
+    return res.status(409).json({ error: "Username already taken" });
+  }
+  const userId = generateUserId();
+  const user = {
+    userId,
+    username: name,
+    passwordHash: hashPassword(String(password)),
+    createdAt: new Date().toISOString(),
+    wins: 0,
+    gamesPlayed: 0,
+  };
+  createUser(user);
+  const token = generateAuthToken(userId, name);
+  res.json({ token, user: { userId, username: name, wins: 0, gamesPlayed: 0 } });
+});
+
+app.post("/api/auth/login", authLimiter, (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password required" });
+  }
+  const user = findUserByUsername(String(username).trim());
+  if (!user || !verifyPassword(String(password), user.passwordHash)) {
+    return res.status(401).json({ error: "Invalid username or password" });
+  }
+  const token = generateAuthToken(user.userId, user.username);
+  res.json({
+    token,
+    user: { userId: user.userId, username: user.username, wins: user.wins, gamesPlayed: user.gamesPlayed },
+  });
+});
+
+app.get("/api/auth/me", authMiddleware, (req, res) => {
+  const user = findUserById(req.userId);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  res.json({ user: { userId: user.userId, username: user.username, wins: user.wins, gamesPlayed: user.gamesPlayed } });
+});
+
+app.get("/api/users/leaderboard", (req, res) => {
+  const users = readUsers();
+  const top = users
+    .sort((a, b) => (b.wins || 0) - (a.wins || 0))
+    .slice(0, 10)
+    .map(u => ({ username: u.username, wins: u.wins || 0, gamesPlayed: u.gamesPlayed || 0 }));
+  res.json(top);
+});
+
+// ─── Existing analytics endpoints ────────────────────────────────────────────
 
 app.get("/api/games", (_req, res) => {
   res.json(readLog());
