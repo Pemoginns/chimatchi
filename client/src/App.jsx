@@ -7,9 +7,10 @@ import GameRound from "./components/GameRound";
 import GameOver from "./components/GameOver";
 import AdminPage from "./components/AdminPage";
 
+const STORAGE_KEY = "pondre_session";
+
 export default function App() {
   const [screen, setScreen] = useState("lobby");
-  const [roomId, setRoomId] = useState(null);
   const [playerId, setPlayerId] = useState(null);
   const [room, setRoom] = useState(null);
   const [countdownValue, setCountdownValue] = useState(3);
@@ -23,26 +24,59 @@ export default function App() {
   const screenRef = React.useRef(screen);
   useEffect(() => { screenRef.current = screen; }, [screen]);
 
-  const roomIdRef = React.useRef(roomId);
-  useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+  const isRejoinAttempt = React.useRef(false);
 
   useEffect(() => {
     socket.connect();
 
-    const onCreated = ({ roomId, playerId }) => {
-      setRoomId(roomId);
+    const onConnect = () => {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return;
+      try {
+        const { roomId: savedRoomId, token: savedToken } = JSON.parse(saved);
+        if (savedRoomId && savedToken) {
+          isRejoinAttempt.current = true;
+          socket.emit("game:rejoin", { roomId: savedRoomId, token: savedToken });
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    };
+
+    const onCreated = ({ roomId, playerId, token }) => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ roomId, token }));
       setPlayerId(playerId);
       setScreen("waiting");
       setError(null);
       setLoading(false);
     };
 
-    const onJoined = ({ roomId, playerId }) => {
-      setRoomId(roomId);
+    const onJoined = ({ roomId, playerId, token }) => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ roomId, token }));
       setPlayerId(playerId);
       setScreen("waiting");
       setError(null);
       setLoading(false);
+    };
+
+    const onRejoined = ({ playerId, roomData, roundData: rd, choicesData: cd }) => {
+      isRejoinAttempt.current = false;
+      setPlayerId(playerId);
+      setRoom(roomData);
+      setError(null);
+      setLoading(false);
+
+      if (rd) {
+        setRoundData(rd);
+        setChoicesData(cd || null);
+        setRevealData(null);
+        setScreen("round");
+      } else {
+        setRoundData(null);
+        setChoicesData(null);
+        setRevealData(null);
+        setScreen("waiting");
+      }
     };
 
     const onRoomUpdate = (data) => {
@@ -81,29 +115,19 @@ export default function App() {
     };
 
     const onError = ({ message }) => {
+      if (isRejoinAttempt.current) {
+        isRejoinAttempt.current = false;
+        localStorage.removeItem(STORAGE_KEY);
+        setScreen("lobby");
+      }
       setError(message);
       setLoading(false);
-    };
-
-    const onConnect = () => {
-      if (roomIdRef.current) {
-        roomIdRef.current = null;
-        setRoomId(null);
-        setPlayerId(null);
-        setRoom(null);
-        setRoundData(null);
-        setChoicesData(null);
-        setRevealData(null);
-        setGameOverData(null);
-        setLoading(false);
-        setScreen("lobby");
-        setError("Connection lost. Please start a new game.");
-      }
     };
 
     socket.on("connect", onConnect);
     socket.on("game:created", onCreated);
     socket.on("game:joined", onJoined);
+    socket.on("game:rejoined", onRejoined);
     socket.on("room:update", onRoomUpdate);
     socket.on("countdown:tick", onCountdown);
     socket.on("round:word", onRoundWord);
@@ -116,6 +140,7 @@ export default function App() {
       socket.off("connect", onConnect);
       socket.off("game:created", onCreated);
       socket.off("game:joined", onJoined);
+      socket.off("game:rejoined", onRejoined);
       socket.off("room:update", onRoomUpdate);
       socket.off("countdown:tick", onCountdown);
       socket.off("round:word", onRoundWord);
@@ -151,9 +176,8 @@ export default function App() {
   };
 
   const handleBackToLobby = () => {
-    roomIdRef.current = null;
+    localStorage.removeItem(STORAGE_KEY);
     setScreen("lobby");
-    setRoomId(null);
     setPlayerId(null);
     setRoom(null);
     setRoundData(null);

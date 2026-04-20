@@ -22,11 +22,18 @@ const POINTS_TO_WIN = 5;
 const WORD_DISPLAY_MS = 3000;
 const ANSWER_WINDOW_MS = 8000;
 const COUNTDOWN_SECS = 2;
+const RECONNECT_GRACE_MS = 10000;
 
 const rooms = new Map();
+// token -> { timer, roomId, socketId }
+const pendingDisconnects = new Map();
 
 function generateId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function generateToken() {
+  return Math.random().toString(36).substring(2, 14).toUpperCase();
 }
 
 function getRoom(id) {
@@ -170,13 +177,47 @@ function endGame(roomId, winnerId) {
   });
 }
 
+// Called after the 10s grace period expires — actually removes the player.
+function actuallyRemovePlayer(roomId, socketId) {
+  const room = getRoom(roomId);
+  if (!room) return;
+
+  room.players = room.players.filter(p => p.id !== socketId);
+  delete room.scores[socketId];
+
+  if (room.players.length === 0) {
+    clearTimeout(room.wordTimer);
+    clearTimeout(room.answerTimer);
+    if (room.state !== "game_over") {
+      upsertSession(roomId, { status: "abandoned", abandonedAt: new Date().toISOString() });
+    }
+    rooms.delete(roomId);
+    return;
+  }
+
+  if (room.host === socketId) {
+    room.host = room.players[0].id;
+  }
+
+  const activeStates = ["countdown", "showing_word", "answering", "revealing"];
+  if (activeStates.includes(room.state) && room.players.length < 2) {
+    clearTimeout(room.wordTimer);
+    clearTimeout(room.answerTimer);
+    endGame(roomId, room.players[0].id);
+    return;
+  }
+
+  broadcastRoom(roomId);
+}
+
 io.on("connection", (socket) => {
   console.log("connected:", socket.id);
 
   socket.on("game:create", ({ playerName, difficulty }) => {
     const diff = Math.min(3, Math.max(1, parseInt(difficulty) || 1));
     const roomId = generateId();
-    const player = { id: socket.id, name: String(playerName || "Host").trim().slice(0, 20) || "Host" };
+    const token = generateToken();
+    const player = { id: socket.id, token, name: String(playerName || "Host").trim().slice(0, 20) || "Host" };
     rooms.set(roomId, {
       host: socket.id,
       players: [player],
@@ -192,7 +233,7 @@ io.on("connection", (socket) => {
     });
     socket.join(roomId);
     socket.roomId = roomId;
-    socket.emit("game:created", { roomId, playerId: socket.id });
+    socket.emit("game:created", { roomId, playerId: socket.id, token });
     broadcastRoom(roomId);
     upsertSession(roomId, {
       createdAt: new Date().toISOString(),
@@ -204,7 +245,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("game:join", ({ roomId, playerName }) => {
-    const room = getRoom(String(roomId || "").trim().toUpperCase().slice(0, 6));
+    const normalizedId = String(roomId || "").trim().toUpperCase().slice(0, 6);
+    const room = getRoom(normalizedId);
     if (!room) {
       socket.emit("error", { message: "Game not found" });
       return;
@@ -213,14 +255,84 @@ io.on("connection", (socket) => {
       socket.emit("error", { message: "Game already started" });
       return;
     }
-    const player = { id: socket.id, name: String(playerName || "Player").trim().slice(0, 20) || "Player" };
+    const token = generateToken();
+    const player = { id: socket.id, token, name: String(playerName || "Player").trim().slice(0, 20) || "Player" };
     room.players.push(player);
     room.scores[socket.id] = 0;
-    socket.join(roomId);
-    socket.roomId = roomId;
-    socket.emit("game:joined", { roomId, playerId: socket.id });
-    broadcastRoom(roomId);
-    upsertSession(roomId, { players: room.players.map(p => p.name) });
+    socket.join(normalizedId);
+    socket.roomId = normalizedId;
+    socket.emit("game:joined", { roomId: normalizedId, playerId: socket.id, token });
+    broadcastRoom(normalizedId);
+    upsertSession(normalizedId, { players: room.players.map(p => p.name) });
+  });
+
+  socket.on("game:rejoin", ({ roomId, token }) => {
+    const normalizedId = String(roomId || "").trim().toUpperCase().slice(0, 6);
+    const room = getRoom(normalizedId);
+    if (!room) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+
+    const player = room.players.find(p => p.token === token);
+    if (!player) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+
+    // Cancel the pending disconnect timer if still within grace period
+    const pending = pendingDisconnects.get(token);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingDisconnects.delete(token);
+    }
+
+    const oldSocketId = player.id;
+
+    // Update all references from old socket.id to new socket.id
+    room.scores[socket.id] = room.scores[oldSocketId] || 0;
+    if (oldSocketId !== socket.id) delete room.scores[oldSocketId];
+    if (room.host === oldSocketId) room.host = socket.id;
+    player.id = socket.id;
+
+    socket.join(normalizedId);
+    socket.roomId = normalizedId;
+
+    // Build response with enough state to restore the correct screen
+    const response = {
+      roomId: normalizedId,
+      playerId: socket.id,
+      token,
+      roomData: {
+        roomId: normalizedId,
+        host: room.host,
+        players: room.players,
+        state: room.state,
+        difficulty: room.difficulty,
+      },
+    };
+
+    const activeStates = ["showing_word", "answering", "revealing"];
+    if (activeStates.includes(room.state) && room.currentRound) {
+      response.roundData = {
+        prompt: room.currentRound.prompt,
+        direction: room.currentRound.direction,
+        roundIndex: room.roundIndex,
+        totalRounds: room.rounds.length,
+        scores: room.scores,
+      };
+      if (room.state === "answering" || room.state === "revealing") {
+        response.choicesData = {
+          prompt: room.currentRound.prompt,
+          direction: room.currentRound.direction,
+          choices: room.currentRound.choices,
+          roundIndex: room.roundIndex,
+        };
+      }
+    }
+
+    socket.emit("game:rejoined", response);
+    broadcastRoom(normalizedId);
   });
 
   socket.on("game:start", () => {
@@ -272,32 +384,18 @@ io.on("connection", (socket) => {
     const room = getRoom(roomId);
     if (!room) return;
 
-    room.players = room.players.filter(p => p.id !== socket.id);
-    delete room.scores[socket.id];
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
 
-    if (room.players.length === 0) {
-      clearTimeout(room.wordTimer);
-      clearTimeout(room.answerTimer);
-      if (room.state !== "game_over") {
-        upsertSession(roomId, { status: "abandoned", abandonedAt: new Date().toISOString() });
-      }
-      rooms.delete(roomId);
-      return;
-    }
+    const token = player.token;
 
-    if (room.host === socket.id) {
-      room.host = room.players[0].id;
-    }
+    // Give the player 10 seconds to reconnect before removing them
+    const timer = setTimeout(() => {
+      pendingDisconnects.delete(token);
+      actuallyRemovePlayer(roomId, socket.id);
+    }, RECONNECT_GRACE_MS);
 
-    const activeStates = ["countdown", "showing_word", "answering", "revealing"];
-    if (activeStates.includes(room.state) && room.players.length < 2) {
-      clearTimeout(room.wordTimer);
-      clearTimeout(room.answerTimer);
-      endGame(roomId, room.players[0].id);
-      return;
-    }
-
-    broadcastRoom(roomId);
+    pendingDisconnects.set(token, { timer, roomId, socketId: socket.id });
   });
 });
 
