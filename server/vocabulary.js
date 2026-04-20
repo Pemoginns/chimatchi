@@ -32,9 +32,10 @@ function buildRound(word, questionIndex, pool) {
   };
 }
 
-function generateRounds(count = 20) {
-  const words = shuffle(allWords).slice(0, count);
-  return words.map((word, i) => buildRound(word, i, allWords));
+function generateRounds(count = 20, difficulty = 1) {
+  const pool = allWords.filter(w => w.difficulty === difficulty);
+  const words = shuffle(pool).slice(0, count);
+  return words.map((word, i) => buildRound(word, i, pool));
 }
 
 module.exports = { generateRounds };

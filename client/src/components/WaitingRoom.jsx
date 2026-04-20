@@ -16,6 +16,9 @@ export default function WaitingRoom({ room, playerId, onStart, error }) {
       <div style={styles.header}>
         <h2 style={styles.title}>Waiting Room</h2>
         <p style={styles.sub}>{isHost ? "Share the code below" : "Waiting for host to start..."}</p>
+        <div style={styles.diffBadge}>
+          {["", "Easy", "Medium", "Hard"][room.difficulty || 1]}
+        </div>
       </div>
 
       <div style={styles.codeCard} onClick={copyCode}>
@@ -81,13 +84,24 @@ const styles = {
     gap: "20px",
     background: "linear-gradient(160deg, #0F0A1E 0%, #1A0A3A 100%)",
   },
-  header: { textAlign: "center" },
+  header: { textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" },
   title: {
     fontSize: "1.8rem",
     fontWeight: 900,
     color: "#F5F3FF",
   },
-  sub: { color: "#A78BFA", fontSize: "0.9rem", marginTop: "4px" },
+  sub: { color: "#A78BFA", fontSize: "0.9rem" },
+  diffBadge: {
+    background: "rgba(124,58,237,0.2)",
+    border: "1px solid rgba(124,58,237,0.4)",
+    borderRadius: "20px",
+    padding: "3px 14px",
+    color: "#A78BFA",
+    fontSize: "0.75rem",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+  },
   codeCard: {
     background: "linear-gradient(135deg, #7C3AED20, #F9731620)",
     border: "2px solid rgba(124,58,237,0.5)",

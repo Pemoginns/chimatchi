@@ -4,10 +4,11 @@ export default function Lobby({ onCreate, onJoin, error, loading }) {
   const [playerName, setPlayerName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [tab, setTab] = useState("create");
+  const [difficulty, setDifficulty] = useState(1);
 
   const handleCreate = () => {
     if (!playerName.trim()) return;
-    onCreate(playerName.trim());
+    onCreate(playerName.trim(), difficulty);
   };
 
   const handleJoin = () => {
@@ -61,6 +62,28 @@ export default function Lobby({ onCreate, onJoin, error, loading }) {
                 onKeyDown={e => e.key === "Enter" && handleJoin()}
                 maxLength={6}
               />
+            </>
+          )}
+
+          {tab === "create" && (
+            <>
+              <label style={styles.label}>Difficulty</label>
+              <div style={styles.diffRow}>
+                {[
+                  { level: 1, label: "Easy", sub: "Common words" },
+                  { level: 2, label: "Medium", sub: "Less common" },
+                  { level: 3, label: "Hard", sub: "Rare words" },
+                ].map(({ level, label, sub }) => (
+                  <button
+                    key={level}
+                    style={{ ...styles.diffBtn, ...(difficulty === level ? styles.diffBtnActive : {}) }}
+                    onClick={() => setDifficulty(level)}
+                  >
+                    <span style={styles.diffLabel}>{label}</span>
+                    <span style={styles.diffSub}>{sub}</span>
+                  </button>
+                ))}
+              </div>
             </>
           )}
 
@@ -209,6 +232,37 @@ const styles = {
   btnLoading: {
     opacity: 0.7,
     cursor: "not-allowed",
+  },
+  diffRow: {
+    display: "flex",
+    gap: "8px",
+  },
+  diffBtn: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "3px",
+    padding: "10px 6px",
+    borderRadius: "12px",
+    background: "#0F0A1E",
+    border: "1.5px solid rgba(124,58,237,0.25)",
+    cursor: "pointer",
+    transition: "all 0.15s",
+  },
+  diffBtnActive: {
+    background: "rgba(124,58,237,0.2)",
+    border: "1.5px solid #7C3AED",
+  },
+  diffLabel: {
+    color: "#F5F3FF",
+    fontWeight: 700,
+    fontSize: "0.85rem",
+  },
+  diffSub: {
+    color: "#A78BFA",
+    fontSize: "0.65rem",
+    fontWeight: 600,
   },
   langBadge: {
     display: "flex",

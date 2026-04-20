@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-const WORD_DISPLAY_MS = 5000;
+const WORD_DISPLAY_MS = 3000;
 const ANSWER_WINDOW_MS = 8000;
 
 export default function GameRound({ roundData, choicesData, revealData, playerId, room, onAnswer }) {

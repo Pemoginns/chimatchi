@@ -18,7 +18,7 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3001;
 const POINTS_TO_WIN = 5;
-const WORD_DISPLAY_MS = 5000;
+const WORD_DISPLAY_MS = 3000;
 const ANSWER_WINDOW_MS = 8000;
 const COUNTDOWN_SECS = 2;
 
@@ -40,6 +40,7 @@ function broadcastRoom(roomId) {
     host: room.host,
     players: room.players,
     state: room.state,
+    difficulty: room.difficulty,
   });
 }
 
@@ -156,14 +157,16 @@ function endGame(roomId, winnerId) {
 io.on("connection", (socket) => {
   console.log("connected:", socket.id);
 
-  socket.on("game:create", ({ playerName }) => {
+  socket.on("game:create", ({ playerName, difficulty }) => {
+    const diff = Math.min(3, Math.max(1, parseInt(difficulty) || 1));
     const roomId = generateId();
     const player = { id: socket.id, name: String(playerName || "Host").trim().slice(0, 20) || "Host" };
     rooms.set(roomId, {
       host: socket.id,
       players: [player],
       state: "waiting",
-      rounds: generateRounds(20),
+      difficulty: diff,
+      rounds: generateRounds(20, diff),
       roundIndex: 0,
       scores: { [socket.id]: 0 },
       currentRound: null,
@@ -229,7 +232,7 @@ io.on("connection", (socket) => {
     clearTimeout(room.answerTimer);
 
     room.state = "waiting";
-    room.rounds = generateRounds(20);
+    room.rounds = generateRounds(20, room.difficulty);
     room.roundIndex = 0;
     room.scores = {};
     room.players.forEach(p => { room.scores[p.id] = 0; });

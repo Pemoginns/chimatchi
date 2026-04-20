@@ -104,10 +104,10 @@ export default function App() {
     };
   }, []);
 
-  const handleCreate = (playerName) => {
+  const handleCreate = (playerName, difficulty) => {
     setLoading(true);
     setError(null);
-    socket.emit("game:create", { playerName });
+    socket.emit("game:create", { playerName, difficulty });
   };
 
   const handleJoin = (code, playerName) => {
