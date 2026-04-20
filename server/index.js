@@ -289,6 +289,14 @@ io.on("connection", (socket) => {
       room.host = room.players[0].id;
     }
 
+    const activeStates = ["countdown", "showing_word", "answering", "revealing"];
+    if (activeStates.includes(room.state) && room.players.length < 2) {
+      clearTimeout(room.wordTimer);
+      clearTimeout(room.answerTimer);
+      endGame(roomId, room.players[0].id);
+      return;
+    }
+
     broadcastRoom(roomId);
   });
 });

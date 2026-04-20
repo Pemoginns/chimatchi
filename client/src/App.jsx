@@ -23,6 +23,9 @@ export default function App() {
   const screenRef = React.useRef(screen);
   useEffect(() => { screenRef.current = screen; }, [screen]);
 
+  const roomIdRef = React.useRef(roomId);
+  useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+
   useEffect(() => {
     socket.connect();
 
@@ -82,6 +85,23 @@ export default function App() {
       setLoading(false);
     };
 
+    const onConnect = () => {
+      if (roomIdRef.current) {
+        roomIdRef.current = null;
+        setRoomId(null);
+        setPlayerId(null);
+        setRoom(null);
+        setRoundData(null);
+        setChoicesData(null);
+        setRevealData(null);
+        setGameOverData(null);
+        setLoading(false);
+        setScreen("lobby");
+        setError("Connection lost. Please start a new game.");
+      }
+    };
+
+    socket.on("connect", onConnect);
     socket.on("game:created", onCreated);
     socket.on("game:joined", onJoined);
     socket.on("room:update", onRoomUpdate);
@@ -93,6 +113,7 @@ export default function App() {
     socket.on("error", onError);
 
     return () => {
+      socket.off("connect", onConnect);
       socket.off("game:created", onCreated);
       socket.off("game:joined", onJoined);
       socket.off("room:update", onRoomUpdate);
@@ -130,6 +151,7 @@ export default function App() {
   };
 
   const handleBackToLobby = () => {
+    roomIdRef.current = null;
     setScreen("lobby");
     setRoomId(null);
     setPlayerId(null);
